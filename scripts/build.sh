@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Builds the local deployment bundle from the stock locales and custom overrides.
+# Usage: scripts/build.sh (no arguments; set STOCK_DIR if needed).
+
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

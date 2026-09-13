@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# TV-side entry point that assembles, mounts and activates the custom Home overlay.
+# Usage: customhome.sh (no arguments; installed and normally run via activate.sh).
+
 set -e -x
 
 ASSETS_DIR=/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets
@@ -35,9 +38,63 @@ WORK_DIR=/tmp/weboshome-overlay-work
     exit 1
 }
 
-# Remove an existing overlay from a previous activation.
+# Remove every existing overlay from a previous activation before touching
+# its upper and work directories. A failed unmount must not be ignored: those
+# directories are unsafe to reuse while an OverlayFS mount still references
+# them.
 
-umount "$ASSETS_DIR" 2>/dev/null || true
+read_mount_state() {
+    # Return the state as text so an inspection error cannot mean "not mounted".
+    MOUNT_STATE=$(awk -v target="$ASSETS_DIR" '
+        $2 == target {
+            mounted = 1
+            if ($3 != "overlay") foreign = 1
+        }
+        END {
+            if (foreign) print "foreign"
+            else if (mounted) print "overlay"
+            else print "none"
+        }
+    ' /proc/mounts) || {
+        echo "ERROR: Could not inspect Home assets mounts" >&2
+        exit 1
+    }
+
+    case "$MOUNT_STATE" in
+        none|overlay) ;;
+        foreign)
+            echo "ERROR: Home assets path is occupied by a non-OverlayFS mount" >&2
+            exit 1
+            ;;
+        *)
+            echo "ERROR: Unexpected Home assets mount state: $MOUNT_STATE" >&2
+            exit 1
+            ;;
+    esac
+}
+
+ATTEMPTS=0
+
+while :; do
+    read_mount_state
+    [ "$MOUNT_STATE" = none ] && break
+
+    if umount "$ASSETS_DIR"; then
+        continue
+    fi
+
+    # Home may still have assets open. Stop it, then retry the unmount.
+    pkill -f '[c]om[.]webos[.]app[.]home' || true
+
+    ATTEMPTS=$((ATTEMPTS + 1))
+
+    if [ "$ATTEMPTS" -ge 5 ]; then
+        echo "ERROR: Could not remove the existing Home overlay"
+        exit 1
+    fi
+
+    sleep 1
+done
 
 # Recreate temporary OverlayFS directories.
 
@@ -69,26 +126,16 @@ cp -a "$OVERRIDE_DIR/i18n/." \
 # If an override does not exist, OverlayFS falls through to LG's
 # original image.
 
-if [ -f "$OVERRIDE_DIR/images/hd/bg_banner_img.png" ]; then
-    mkdir -p "$UPPER_DIR/images/hd"
+for RESOLUTION in hd 2k 4k; do
+    IMAGE="$OVERRIDE_DIR/images/$RESOLUTION/bg_banner_img.png"
 
-    cp "$OVERRIDE_DIR/images/hd/bg_banner_img.png" \
-       "$UPPER_DIR/images/hd/bg_banner_img.png"
-fi
+    if [ -f "$IMAGE" ]; then
+        mkdir -p "$UPPER_DIR/images/$RESOLUTION"
 
-if [ -f "$OVERRIDE_DIR/images/2k/bg_banner_img.png" ]; then
-    mkdir -p "$UPPER_DIR/images/2k"
-
-    cp "$OVERRIDE_DIR/images/2k/bg_banner_img.png" \
-       "$UPPER_DIR/images/2k/bg_banner_img.png"
-fi
-
-if [ -f "$OVERRIDE_DIR/images/4k/bg_banner_img.png" ]; then
-    mkdir -p "$UPPER_DIR/images/4k"
-
-    cp "$OVERRIDE_DIR/images/4k/bg_banner_img.png" \
-       "$UPPER_DIR/images/4k/bg_banner_img.png"
-fi
+        cp "$IMAGE" \
+           "$UPPER_DIR/images/$RESOLUTION/bg_banner_img.png"
+    fi
+done
 
 # Mount the merged Home assets view.
 
@@ -98,4 +145,4 @@ mount -t overlay overlay \
 
 # Restart Home so it reloads the assets.
 
-pkill -f com.webos.app.home || true
+pkill -f '[c]om[.]webos[.]app[.]home' || true

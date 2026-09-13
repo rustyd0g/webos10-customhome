@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Verifies that the deployed files are active through OverlayFS on the TV.
+# Usage: scripts/verify.sh (no arguments; set TV to override the SSH host).
+
 set -eu
 
 TV="${TV:-lg-tv}"
@@ -12,7 +15,7 @@ ssh "$TV" "
 
     echo '=== Overlay mount ==='
 
-    mount | grep '$ASSETS' || {
+    awk -v target='$ASSETS' '\$2 == target && \$3 == \"overlay\" { found = 1 } END { exit !found }' /proc/mounts || {
         echo 'ERROR: Home assets OverlayFS mount not found'
         exit 1
     }
@@ -39,6 +42,22 @@ ssh "$TV" "
     echo '=== i18n ==='
 
     test -d '$ASSETS/i18n'
+
+    if [ -L '$ASSETS/i18n' ]; then
+        echo 'ERROR: Active i18n path is still the stock symlink'
+        exit 1
+    fi
+
+    for FILE in '$TARGET/assets/i18n/'*; do
+        [ -f \"\$FILE\" ] || continue
+
+        NAME=\${FILE##*/}
+
+        cmp \"\$FILE\" '$ASSETS/i18n/'\"\$NAME\" || {
+            echo \"ERROR: Active locale does not match deployment: \$NAME\"
+            exit 1
+        }
+    done
 
     echo 'OK'
 "

@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Builds and uploads Custom Home to the TV while retaining the previous deployment.
+# Usage: scripts/deploy.sh (no arguments; set TV to override the SSH host).
+
 set -eu
 
 TV="${TV:-lg-tv}"
@@ -31,7 +34,7 @@ scp -r \
     "$BUILD_DIR/." \
     "$TV:$STAGE/"
 
-echo "Activating deployed files..."
+echo "Installing uploaded files..."
 
 ssh "$TV" "
     set -e
