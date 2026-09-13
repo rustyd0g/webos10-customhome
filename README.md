@@ -26,24 +26,54 @@ The repository supports four kinds of customisation:
 
 ### Layout examples
 
-`home.xml` defines the main Home items. For example, the recommendation shelf
-is represented by an item similar to:
+Edit `overrides/home.xml`. To remove the recommendation shelf or the Q-Card
+strip above the apps, delete the corresponding item (either or both):
 
 ```xml
 <item id="recommendedShelf" itemWidth="3798" itemHeight="531" focusType="scope" autoFocus="false"/>
+<item id="qcardList" itemWidth="3840" itemHeight="180" focusType="scope" autoFocus="false"/>
 ```
 
-Removing that item removes the shelf on compatible versions of Home.
-
-Some elements should be retained but hidden. For example, a global navigation
-item can be collapsed without removing it:
+To hide global navigation, retain `globalline`, set its width and height to
+zero, and place it **after `herobanner` inside the same container**:
 
 ```xml
 <item id="globalline" itemWidth="0" itemHeight="0" focusType="scope" autoFocus="false"/>
 ```
 
-`home_layoutShelfView.xml` controls positions and dimensions. These attributes
-can be adjusted to change spacing or move a component:
+The original guide reports a black screen when `globalline` is removed entirely.
+
+<details>
+<summary>Full example: expanded hero with apps at the bottom</summary>
+
+This complete `overrides/home.xml` example comes from the original guide,
+reported tested on webOS 10.2.2 (EU). It removes both shelves, hides navigation,
+and gives the hero a 3840×1803 area. The first margin has height `0` to avoid
+a thin black strip at the top. Adapt it to the stock layout for your firmware.
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<home version="2.0">
+    <layout windowType="overlay" pageType="none" pageCount="1" defaultPage="0">
+        <page pageBodyType="container">
+            <item id="margin" itemWidth="3840" itemHeight="0" focusType="none"/>
+            <item id="container" hasChildren="true" itemWidth="3840" itemHeight="1803" focusType="scope">
+                <item id="herobanner" itemWidth="3840" itemHeight="1803" focusType="scope" autoFocus="false"/>
+                <item id="globalline" itemWidth="0" itemHeight="0" focusType="scope" autoFocus="false"/>
+            </item>
+            <item id="margin" itemWidth="3840" itemHeight="50" focusType="none"/>
+            <item id="appList" itemWidth="3840" itemHeight="248" focusType="scope" autoFocus="true"/>
+            <item id="margin" itemWidth="3840" itemHeight="48" focusType="none"/>
+            <item id="quickGuide" itemX="0" itemY="0" itemWidth="0" itemHeight="0" focusType="none"/>
+        </page>
+    </layout>
+</home>
+```
+
+</details>
+
+In `overrides/home_layoutShelfView.xml`, position and dimension attributes
+can be adjusted to change spacing or move a component, for example:
 
 ```xml
 <item type="AppList" itemX="24" itemY="850" itemWidth="1872" itemHeight="173" focus="true" option="webOS24"/>
@@ -55,12 +85,34 @@ render a modified layout.
 
 ### Text examples
 
-Locale files are JSON objects. Keep the key unchanged and edit only its value:
+Edit the relevant locale under `overrides/i18n/`, such as `en_GB.json` or
+`de.json`. Keep each key unchanged and edit only its value. These snippets show
+individual entries to change; retain the other entries in the locale file.
+
+Rename labels:
 
 ```json
 {
   "Channel": "Programme",
   "Frequently Viewed Channels": "Frequently Viewed Programmes"
+}
+```
+
+Hide the hero headline and button text by setting their values to empty strings:
+
+```json
+{
+  "Start a new experience with webOS.": "",
+  "Go to Apps": ""
+}
+```
+
+Blanking a label does not necessarily remove its button or reserved space.
+To use a custom headline instead:
+
+```json
+{
+  "Start a new experience with webOS.": "Your custom text here"
 }
 ```
 
@@ -95,6 +147,20 @@ overrides/images/4k/bg_banner_img.png
 ```
 
 Missing resolutions continue to use LG's original image.
+
+For an unchanged layout, match the dimensions of each downloaded PNG. One
+stock snapshot has these sizes; check your own files because firmware varies:
+
+| Profile | Stock `bg_banner_img.png` dimensions |
+| --- | --- |
+| HD | 1264×326 |
+| 2K | 1746×450 |
+| 4K | 3492×900 |
+
+For the expanded 3840×1803 hero example above, use 3840×1803 artwork for the
+4K override. The original guide's 3840×900 suggestion assumes a 3840-wide hero;
+it is not a universal stock image size. Size other resolution variants for
+their layout rather than assuming every profile uses the same dimensions.
 
 ## How it works
 
@@ -428,7 +494,12 @@ contains the complete stock locale set with edited files copied over it.
 
 - BusyBox tools on webOS may support fewer options than GNU utilities.
 - A valid XML document can still contain a layout that Home cannot render.
-- Some visual properties may be hardcoded in the Home Flutter application.
+- The original guide (webOS 10.2.2, EU) reports that app icon size is hardcoded
+  in `libapp.so`, and AppList `option` values such as `webOS24` are ignored.
+  Changing row dimensions should not be assumed to resize app icons.
+- That guide also reports that the clock in the senior section of `home_lg.xml`
+  does not render outside its layout context. These observations may vary
+  with firmware.
 - Runtime changes are temporary unless automatic startup is enabled.
 
 ## Credits
