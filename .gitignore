@@ -1,0 +1,12 @@
+
+# Generated deployment
+.build/
+
+# macOS
+.DS_Store
+
+# Generated deployment
+.build/
+
+# OS/editor metadata
+.DS_Store

@@ -1,736 +1,252 @@
-# Customizing the LG webOS 10 / webOS25 Homescreen
+# webOS 10 Custom Home
 
-Customize the LG webOS Home screen by changing its layout, text, and optionally its hero banner, without modifying the original read-only system files.
+Customise the LG webOS 10 / webOS25 Home screen without modifying LG's original read-only system files.
 
-> **Tested on:** LG webOS 10.2.2 (Rockhopper), EU region
-> **Requirements:** Root access, SSH access, Homebrew Channel, and `webosbrew` init.d support
+This project uses **OverlayFS** to present customised Home assets over the original LG files. Development is done locally, custom files are version-controlled in Git, and pristine files copied from the TV are kept separately outside the repository.
 
----
-
-# Before / After
-
-## Before
-
-![Homescreen](SCR-20260428-shkq.jpeg)
-
-## After
-
-![Homescreen](webos-dev-tmp-58150897-6906-4e77-a7dd-f994a6e4282a.png)
+> **Requirements**
+>
+> * Rooted LG webOS TV
+> * Homebrew Channel / webOSbrew
+> * SSH access to the TV
+> * macOS or Linux development machine
+> * Git
+> * `scp` and `ssh`
+> * VS Code is optional
 
 ---
 
-## Background
+# How It Works
 
-On webOS 10, the Home app has been rewritten in **Flutter**.
-
-Its layout is controlled by XML files, while UI text comes from locale JSON files contained inside the Home application's Flutter assets directory:
+The LG Home application's Flutter assets are located at:
 
 ```text
 /usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/
 ```
 
-These files are stored on LG's read-only system filesystem and should not be modified directly.
+These files are on LG's read-only system filesystem.
 
-Instead, this method uses **OverlayFS**.
+This project does **not** modify them.
 
-The original Home assets directory remains the read-only lower layer. A small writable upper layer is created under `/tmp` containing only the files you want to replace.
-
-The result is presented at the original assets path:
+Instead, it creates an OverlayFS mount:
 
 ```text
-LG original assets
-       +
-custom upper layer
-       |
-       v
+LG original Home assets
+        +
+temporary custom upper layer
+        |
+        v
 merged Home assets
 ```
 
-Anything that does not exist in the upper layer continues to come directly from LG's original filesystem.
+Files supplied by this project replace the corresponding LG files in the merged view.
 
-This means there is no need to copy the entire Flutter asset tree into RAM.
+Anything not replaced continues to come directly from LG's original filesystem.
 
-The underlying LG files remain unchanged.
-
----
-
-## Important `i18n` Detail
-
-The original `i18n` entry inside the Home assets directory is a **symlink** to another read-only location.
-
-OverlayFS handles this differently from an ordinary directory.
-
-When a real directory named `i18n` exists in the upper layer, it shadows the lower-layer symlink completely.
-
-Therefore:
-
-> Your custom `assets/i18n/` directory should contain the complete locale set required by the Home app, not only the JSON files you modify.
-
-The instructions below copy the original locale files into your writable override directory before you make any changes.
+The underlying system files remain unchanged.
 
 ---
 
-## Persistent and Temporary Files
+# Project Structure
 
-Persistent custom files are kept under:
+The recommended local layout is:
 
 ```text
-/media/developer/apps/usr/palm/applications/tld.my.customhome/
+~/Projects/
+├── webos10-customhome/                  # Git repository
+│   ├── README.md
+│   ├── LICENSE
+│   ├── src/
+│   │   └── apply.sh
+│   ├── overrides/
+│   │   ├── home.xml
+│   │   ├── home_layoutShelfView.xml
+│   │   ├── i18n/
+│   │   │   └── en_GB.json
+│   │   └── images/
+│   │       ├── hd/
+│   │       ├── 2k/
+│   │       └── 4k/
+│   ├── scripts/
+│   │   ├── pull-stock.sh
+│   │   ├── add-locale.sh
+│   │   ├── build.sh
+│   │   ├── deploy.sh
+│   │   ├── apply.sh
+│   │   ├── verify.sh
+│   │   └── rollback.sh
+│   └── .build/                          # generated, ignored by Git
+│
+└── webos10-customhome-stock/            # pristine LG files, not Git
+    ├── home.xml
+    ├── home_layoutShelfView.xml
+    └── i18n/
+        ├── en_GB.json
+        ├── en_US.json
+        ├── de_DE.json
+        └── ...
 ```
 
-Runtime OverlayFS files are created under:
+There are therefore three distinct layers:
 
 ```text
-/tmp/weboshome-overlay-upper/
-/tmp/weboshome-overlay-work/
-```
+webos10-customhome-stock
+        ↓
+pristine LG source files
 
-The `/tmp` contents and OverlayFS mount disappear after reboot.
+webos10-customhome
+        ↓
+your version-controlled customisations
 
-This is intentional and provides a simple rollback mechanism.
-
----
-
-# Initial Setup
-
-Create the custom project directory:
-
-```sh
-mkdir -p /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/i18n
-```
-
-Banner image directories are only needed if you want to replace the hero banner:
-
-```sh
-mkdir -p /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/hd
-mkdir -p /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/2k
-mkdir -p /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/4k
+TV /media/developer/...
+        ↓
+deployed runtime files
 ```
 
 ---
 
-## Copy the Original XML Files
+# Repository Branch
 
-> **Initial setup only.**
->
-> These commands copy LG's original files into your writable override directory.
-> They do **not** modify the originals.
->
-> Do not rerun them after editing your custom copies unless you intentionally want to reset your changes.
-
-```sh
-cp /usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/home.xml \
-   /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/home.xml
-
-cp /usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/home_layoutShelfView.xml \
-   /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/home_layoutShelfView.xml
-```
-
----
-
-## Copy the Locale Files
-
-> **Initial setup only.**
->
-> Copy the complete locale set before making any modifications.
->
-> Rerunning this command later may overwrite locale files you have already customised.
-
-```sh
-cp /mnt/lg/wee/ui_l10n/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/i18n/* \
-   /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/i18n/
-```
-
----
-
-# The `apply.sh` Script
-
-The script:
-
-* verifies that the required XML and locale overrides exist
-* removes any previous Home asset overlay
-* recreates fresh OverlayFS upper and work directories
-* copies the two modified XML files
-* copies the custom `i18n` directory
-* optionally copies banner images if they exist
-* mounts the merged OverlayFS view
-* restarts the Home app
-
-Create it with:
-
-```sh
-cat > /media/developer/apps/usr/palm/applications/tld.my.customhome/apply.sh << 'EOF'
-#!/bin/sh
-
-set -e -x
-
-ASSETS_DIR=/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets
-OVERRIDE_DIR=/media/developer/apps/usr/palm/applications/tld.my.customhome/assets
-
-UPPER_DIR=/tmp/weboshome-overlay-upper
-WORK_DIR=/tmp/weboshome-overlay-work
-
-# ---------------------------------------------------------------------------
-# Sanity checks
-# ---------------------------------------------------------------------------
-
-[ -d "$ASSETS_DIR" ] || {
-    echo "ERROR: Home assets directory not found: $ASSETS_DIR"
-    exit 1
-}
-
-[ -d "$OVERRIDE_DIR" ] || {
-    echo "ERROR: Override directory not found: $OVERRIDE_DIR"
-    exit 1
-}
-
-[ -f "$OVERRIDE_DIR/home.xml" ] || {
-    echo "ERROR: Missing home.xml"
-    exit 1
-}
-
-[ -f "$OVERRIDE_DIR/home_layoutShelfView.xml" ] || {
-    echo "ERROR: Missing home_layoutShelfView.xml"
-    exit 1
-}
-
-[ -d "$OVERRIDE_DIR/i18n" ] || {
-    echo "ERROR: Missing i18n directory"
-    exit 1
-}
-
-# ---------------------------------------------------------------------------
-# Remove an existing overlay from a previous run.
-#
-# This reveals the original LG assets before the upper layer is rebuilt.
-# ---------------------------------------------------------------------------
-
-umount "$ASSETS_DIR" 2>/dev/null || true
-
-# ---------------------------------------------------------------------------
-# Recreate temporary OverlayFS directories.
-# ---------------------------------------------------------------------------
-
-rm -rf "$UPPER_DIR" "$WORK_DIR"
-
-mkdir -p \
-    "$UPPER_DIR/i18n" \
-    "$WORK_DIR"
-
-# ---------------------------------------------------------------------------
-# XML overrides
-# ---------------------------------------------------------------------------
-
-cp "$OVERRIDE_DIR/home.xml" \
-   "$UPPER_DIR/home.xml"
-
-cp "$OVERRIDE_DIR/home_layoutShelfView.xml" \
-   "$UPPER_DIR/home_layoutShelfView.xml"
-
-# ---------------------------------------------------------------------------
-# i18n override
-#
-# The original ASSETS_DIR/i18n entry is a symlink.
-# A real i18n directory in upperdir shadows it completely.
-#
-# Keep a complete locale set under OVERRIDE_DIR/i18n.
-#
-# BusyBox cp supports -a, which preserves attributes and symlinks inside
-# the copied tree.
-# ---------------------------------------------------------------------------
-
-cp -a "$OVERRIDE_DIR/i18n/." \
-      "$UPPER_DIR/i18n/"
-
-# ---------------------------------------------------------------------------
-# Optional banner image overrides
-#
-# Each resolution is independent.
-#
-# If a custom file exists, it is added to the upper layer.
-# If it does not exist, OverlayFS uses LG's original image automatically.
-# ---------------------------------------------------------------------------
-
-if [ -f "$OVERRIDE_DIR/images/hd/bg_banner_img.png" ]; then
-    mkdir -p "$UPPER_DIR/images/hd"
-
-    cp "$OVERRIDE_DIR/images/hd/bg_banner_img.png" \
-       "$UPPER_DIR/images/hd/bg_banner_img.png"
-fi
-
-if [ -f "$OVERRIDE_DIR/images/2k/bg_banner_img.png" ]; then
-    mkdir -p "$UPPER_DIR/images/2k"
-
-    cp "$OVERRIDE_DIR/images/2k/bg_banner_img.png" \
-       "$UPPER_DIR/images/2k/bg_banner_img.png"
-fi
-
-if [ -f "$OVERRIDE_DIR/images/4k/bg_banner_img.png" ]; then
-    mkdir -p "$UPPER_DIR/images/4k"
-
-    cp "$OVERRIDE_DIR/images/4k/bg_banner_img.png" \
-       "$UPPER_DIR/images/4k/bg_banner_img.png"
-fi
-
-# ---------------------------------------------------------------------------
-# Mount the merged OverlayFS view.
-#
-# lowerdir = original LG read-only assets
-# upperdir = changed files only
-# workdir  = OverlayFS working directory
-#
-# upperdir and workdir are both under /tmp.
-# ---------------------------------------------------------------------------
-
-mount -t overlay overlay \
-    -o lowerdir="$ASSETS_DIR",upperdir="$UPPER_DIR",workdir="$WORK_DIR" \
-    "$ASSETS_DIR"
-
-# ---------------------------------------------------------------------------
-# Restart Home so it reloads the modified assets.
-# ---------------------------------------------------------------------------
-
-pkill -f com.webos.app.home || true
-
-EOF
-
-chmod +x /media/developer/apps/usr/palm/applications/tld.my.customhome/apply.sh
-```
-
-The `cat ... << 'EOF'` wrapper is only used to create the script from the SSH shell.
-
-The resulting `apply.sh` file begins with:
-
-```sh
-#!/bin/sh
-```
-
-and does not contain the surrounding `cat`, `EOF`, or `chmod` commands.
-
----
-
-# Removing Unwanted UI Elements
-
-Edit your copied version:
+Development can be kept on a dedicated branch:
 
 ```text
-/media/developer/apps/usr/palm/applications/tld.my.customhome/assets/home.xml
-```
-
-Do not edit:
-
-```text
-/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/home.xml
-```
-
-directly.
-
----
-
-## Remove the Recommended Shelf
-
-The `recommendedShelf` is the large recommendation area near the bottom of the Home screen.
-
-Remove it from your override:
-
-```sh
-sed -i '/<item id="recommendedShelf"/d' \
-    /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/home.xml
-```
-
----
-
-## Remove the Q-Card List
-
-Remove the horizontal Q-Card area:
-
-```sh
-sed -i '/<item id="qcardList"/d' \
-    /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/home.xml
-```
-
----
-
-## Hide the Global Navigation Menu
-
-The `globalline` element controls the global navigation area.
-
-Removing it completely can cause the Home screen to fail.
-
-Instead, set:
-
-```xml
-itemWidth="0"
-itemHeight="0"
-```
-
-The element should remain after `herobanner` inside the container.
-
----
-
-## Example `home.xml`
-
-A modified layout with a fullscreen hero area and the application list at the bottom:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<home version="2.0">
-<layout windowType="overlay" pageType="none" pageCount="1" defaultPage="0">
-<page pageBodyType="container">
-
-<item id="margin"
-      itemWidth="3840"
-      itemHeight="0"
-      focusType="none"/>
-
-<item id="container"
-      hasChildren="true"
-      itemWidth="3840"
-      itemHeight="1803"
-      focusType="scope">
-
-<item id="herobanner"
-      itemWidth="3840"
-      itemHeight="1803"
-      focusType="scope"
-      autoFocus="false"/>
-
-<item id="globalline"
-      itemWidth="0"
-      itemHeight="0"
-      focusType="scope"
-      autoFocus="false"/>
-
-</item>
-
-<item id="margin"
-      itemWidth="3840"
-      itemHeight="50"
-      focusType="none"/>
-
-<item id="appList"
-      itemWidth="3840"
-      itemHeight="248"
-      focusType="scope"
-      autoFocus="true"/>
-
-<item id="margin"
-      itemWidth="3840"
-      itemHeight="48"
-      focusType="none"/>
-
-<item id="quickGuide"
-      itemX="0"
-      itemY="0"
-      itemWidth="0"
-      itemHeight="0"
-      focusType="none"/>
-
-</page>
-</layout>
-</home>
-```
-
-The top margin should be:
-
-```xml
-itemHeight="0"
-```
-
-to avoid a thin black strip along the top edge.
-
----
-
-# Changing or Removing UI Text
-
-The hero banner includes text such as the headline and CTA button.
-
-These strings can be changed by editing the copies under:
-
-```text
-/media/developer/apps/usr/palm/applications/tld.my.customhome/assets/i18n/
+customhome
 ```
 
 For example:
 
-```text
-de.json
-```
-
-To remove text:
-
 ```sh
-sed -i 's/"Start a new experience with webOS.": "[^"]*"/"Start a new experience with webOS.": ""/' \
-    /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/i18n/de.json
-
-sed -i 's/"Go to Apps": "[^"]*"/"Go to Apps": ""/' \
-    /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/i18n/de.json
+git switch customhome
 ```
 
-Or replace a string:
-
-```sh
-sed -i 's/"Start a new experience with webOS.": "[^"]*"/"Start a new experience with webOS.": "Your custom text here"/' \
-    /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/i18n/de.json
-```
-
-Only your copied files under `/media/developer` are changed.
-
-LG's original locale files remain untouched.
+The fork's `main` branch can then remain available for tracking upstream changes.
 
 ---
 
-# Optional Hero Banner Override
+# Initial Mac Setup
 
-Replacing the banner is optional.
-
-If no custom banner files are present, OverlayFS automatically uses LG's original images.
-
-The banner paths are:
-
-```text
-assets/images/hd/bg_banner_img.png
-assets/images/2k/bg_banner_img.png
-assets/images/4k/bg_banner_img.png
-```
-
-To override them, create the directories if necessary:
+Create a projects directory:
 
 ```sh
-mkdir -p /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/hd
-mkdir -p /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/2k
-mkdir -p /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/4k
+mkdir -p ~/Projects
+cd ~/Projects
 ```
 
-Then copy your image:
+Clone the repository:
 
 ```sh
-scp your_image.png \
-    root@<TV-IP>:/media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/4k/bg_banner_img.png
-
-scp your_image.png \
-    root@<TV-IP>:/media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/2k/bg_banner_img.png
-
-scp your_image.png \
-    root@<TV-IP>:/media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/hd/bg_banner_img.png
+git clone git@github.com:rustyd0g/webos10-customhome.git
+cd webos10-customhome
 ```
 
-You do not need to provide all three resolutions.
+Switch to the development branch:
 
-If, for example, only this exists:
+```sh
+git switch customhome
+```
+
+If the branch does not yet exist locally:
+
+```sh
+git switch -c customhome
+git push -u origin customhome
+```
+
+---
+
+# SSH Configuration
+
+It is convenient to give the TV an SSH alias.
+
+Edit:
 
 ```text
-assets/images/4k/bg_banner_img.png
+~/.ssh/config
 ```
 
-then only the 4K image is overridden.
-
-The HD and 2K images continue to come from LG's original assets.
-
-For a fullscreen hero banner using:
-
-```xml
-itemHeight="1803"
-```
-
-a suitable 4K image size is:
+and add:
 
 ```text
-3840x1803
+Host lg-tv
+    HostName 192.168.30.122
+    User root
 ```
 
-For the default banner height:
+Test it:
+
+```sh
+ssh lg-tv
+```
+
+All project scripts use `lg-tv` by default.
+
+The target can be overridden for an individual command with:
+
+```sh
+TV=some-other-host ./scripts/deploy.sh
+```
+
+---
+
+# Stock Files
+
+Pristine files copied from the TV are stored outside Git at:
 
 ```text
-3840x900
+~/Projects/webos10-customhome-stock/
 ```
 
----
+These are reference files and should not normally be edited.
 
-# Testing
-
-Apply the changes manually before enabling autostart:
-
-```sh
-sh /media/developer/apps/usr/palm/applications/tld.my.customhome/apply.sh
-```
-
-The Home app should restart automatically.
-
----
-
-## Verify the OverlayFS Mount
-
-Run:
-
-```sh
-mount | grep '/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets'
-```
-
-You should see an `overlay` mount at that path.
-
----
-
-## Verify `home.xml`
-
-```sh
-cmp \
-  /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/home.xml \
-  /usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/home.xml
-```
-
-No output means the merged view contains your override.
-
----
-
-## Verify `home_layoutShelfView.xml`
-
-```sh
-cmp \
-  /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/home_layoutShelfView.xml \
-  /usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/home_layoutShelfView.xml
-```
-
-Again, no output means the files match.
-
----
-
-## Verify an Optional Banner Override
-
-If you supplied a custom 4K banner:
-
-```sh
-cmp \
-  /media/developer/apps/usr/palm/applications/tld.my.customhome/assets/images/4k/bg_banner_img.png \
-  /usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/images/4k/bg_banner_img.png
-```
-
-No output means OverlayFS is serving your image.
-
----
-
-# Recovery
-
-If the Home screen becomes unusable, crashes, or displays a black screen:
-
-```sh
-reboot
-```
-
-The OverlayFS mount disappears during reboot because its upper and work directories live in `/tmp`.
-
-LG's original Home assets then become visible again.
-
-No original system file needs to be restored because none was overwritten.
-
----
-
-# Making the Customisation Persistent
-
-After testing the script manually, register it with the `webosbrew` init system:
-
-```sh
-ln -sf /media/developer/apps/usr/palm/applications/tld.my.customhome/apply.sh \
-       /var/lib/webosbrew/init.d/49-custom-homescreen
-```
-
-Then reboot:
-
-```sh
-reboot
-```
-
-After boot, verify the overlay:
-
-```sh
-mount | grep '/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets'
-```
-
----
-
-# Removing Autostart
-
-Remove the `webosbrew` startup link:
-
-```sh
-rm /var/lib/webosbrew/init.d/49-custom-homescreen
-```
-
-Then reboot:
-
-```sh
-reboot
-```
-
-The TV will return to LG's original Home assets.
-
-Your custom files under `/media/developer` remain available if you want to enable them again later.
-
----
-
-# Directory Layout
-
-A setup without custom banner images can be as simple as:
+The repository contains the files you actually customise under:
 
 ```text
-/media/developer/apps/usr/palm/applications/tld.my.customhome/
-├── apply.sh
-└── assets/
-    ├── home.xml
-    ├── home_layoutShelfView.xml
-    └── i18n/
-        ├── de.json
-        ├── en-GB.json
-        └── ...
+overrides/
 ```
-
-If banner overrides are used:
-
-```text
-/media/developer/apps/usr/palm/applications/tld.my.customhome/
-├── apply.sh
-└── assets/
-    ├── home.xml
-    ├── home_layoutShelfView.xml
-    ├── i18n/
-    │   ├── de.json
-    │   ├── en-GB.json
-    │   └── ...
-    └── images/
-        ├── hd/
-        │   └── bg_banner_img.png
-        ├── 2k/
-        │   └── bg_banner_img.png
-        └── 4k/
-            └── bg_banner_img.png
-```
-
-At runtime:
-
-```text
-/tmp/weboshome-overlay-upper/
-/tmp/weboshome-overlay-work/
-```
-
-are created automatically.
 
 ---
 
-# How OverlayFS Handles the Overrides
+# Scripts
 
-Suppose the original assets contain:
+The `scripts/` directory contains the local development and deployment tools.
+
+Typical workflow:
 
 ```text
-home.xml
-home_layoutShelfView.xml
-home_lg.xml
-fonts/
-images/
-mock/
-i18n -> symlink
+pull-stock.sh
+      ↓
+add-locale.sh
+      ↓
+edit overrides/
+      ↓
+build.sh
+      ↓
+deploy.sh
+      ↓
+apply.sh
+      ↓
+verify.sh
 ```
 
-and the upper layer contains:
+If something goes wrong:
+
+```text
+rollback.sh
+```
+
+---
+
+## `scripts/pull-stock.sh`
+
+### Purpose
+
+Copies the pristine Home files from the TV to:
+
+```text
+~/Projects/webos10-customhome-stock/
+```
+
+It retrieves:
 
 ```text
 home.xml
@@ -738,135 +254,1158 @@ home_layoutShelfView.xml
 i18n/
 ```
 
-The merged result is effectively:
+It also creates the initial editable XML copies:
 
 ```text
-home.xml                    -> custom upper layer
-home_layoutShelfView.xml    -> custom upper layer
-i18n/                       -> custom upper layer
-home_lg.xml                 -> LG lower layer
-fonts/                       -> LG lower layer
-images/                      -> LG lower layer
-mock/                        -> LG lower layer
+overrides/home.xml
+overrides/home_layoutShelfView.xml
 ```
 
-If a custom image is later added:
+### Usage
 
-```text
-images/4k/bg_banner_img.png
-```
-
-then the merged image tree becomes:
-
-```text
-images/4k/bg_banner_img.png  -> custom upper layer
-all other images             -> LG lower layer
-```
-
-This is one of the main advantages of OverlayFS.
-
-Only files that are actually being customised need to be copied.
-
----
-
-# Why OverlayFS?
-
-An earlier version of this method copied the complete Home asset tree into `/tmp` before applying the changes and bind-mounting the resulting directory.
-
-That works, but it is unnecessary.
-
-OverlayFS:
-
-* avoids copying the complete Flutter asset tree
-* reduces temporary RAM usage
-* reduces unnecessary filesystem reads
-* applies faster
-* keeps unchanged files directly backed by LG's original filesystem
-* clearly separates original and modified files
-* makes optional overrides straightforward
-
-The original files remain untouched in both approaches, but OverlayFS is more economical.
-
----
-
-# BusyBox Compatibility
-
-webOS uses BusyBox for many standard Unix utilities.
-
-GNU-specific command-line options should therefore not be assumed to exist.
-
-For example, older versions of this guide used:
-
-```text
-cp -R --no-dereference
-```
-
-when copying an entire asset tree.
-
-BusyBox `cp` does not necessarily provide GNU's `--no-dereference` long option.
-
-This OverlayFS version no longer needs to copy the original asset tree at all.
-
-For the recursive `i18n` copy, it uses:
+Run once during initial setup:
 
 ```sh
-cp -a
+./scripts/pull-stock.sh
 ```
 
-which is supported by BusyBox and preserves attributes and symlinks within the copied tree.
+### Remote sources
+
+The XML files are read from:
+
+```text
+/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/
+```
+
+The complete locale set is read from:
+
+```text
+/mnt/lg/wee/ui_l10n/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/i18n/
+```
+
+These are only read.
+
+Nothing at either LG path is modified.
+
+### Safety
+
+The script refuses to overwrite an existing stock snapshot.
+
+If:
+
+```text
+~/Projects/webos10-customhome-stock/
+```
+
+already contains the stock files, `pull-stock.sh` exits instead of replacing them.
+
+This prevents accidentally replacing your known-good reference copy.
+
+### Custom stock location
+
+The default location can be changed:
+
+```sh
+STOCK_DIR=/some/other/path ./scripts/pull-stock.sh
+```
 
 ---
 
-# What Gets Modified?
+## `scripts/add-locale.sh`
 
-The following are **your custom persistent files**:
+### Purpose
+
+Copies a single locale from the pristine stock directory into:
+
+```text
+overrides/i18n/
+```
+
+This allows only the locale files you actually customise to be stored in Git.
+
+### Example
+
+LG uses underscore-based locale filenames.
+
+For British English:
+
+```sh
+./scripts/add-locale.sh en_GB.json
+```
+
+This creates:
+
+```text
+overrides/i18n/en_GB.json
+```
+
+You can then edit it normally.
+
+### Important
+
+Use the exact filename present on your TV.
+
+For example:
+
+```text
+en_GB.json
+```
+
+not:
+
+```text
+en-GB.json
+```
+
+To see available English locales:
+
+```sh
+ls -1 ~/Projects/webos10-customhome-stock/i18n | grep '^en'
+```
+
+### Safety
+
+`add-locale.sh` refuses to overwrite a locale override that already exists.
+
+If:
+
+```text
+overrides/i18n/en_GB.json
+```
+
+already exists, the script exits instead of replacing your modifications.
+
+---
+
+## `scripts/build.sh`
+
+### Purpose
+
+Creates a complete deployment tree locally.
+
+The result is:
+
+```text
+.build/tld.my.customhome/
+```
+
+The `.build/` directory is generated and should be ignored by Git.
+
+### Why a build step is required
+
+The original Home `i18n` entry is a symlink.
+
+When the custom OverlayFS upper layer contains a real directory named:
+
+```text
+i18n/
+```
+
+that directory shadows the original lower-layer symlink completely.
+
+Therefore the deployed `i18n` directory must contain the **complete locale set**, not only the locales you modified.
+
+`build.sh` handles this automatically.
+
+### Build process
+
+It:
+
+1. creates a clean `.build/tld.my.customhome/`
+2. copies `src/apply.sh`
+3. copies your custom XML files
+4. copies every pristine LG locale from the external stock directory
+5. overlays any custom locales from `overrides/i18n/`
+6. includes optional banner images if they exist
+
+The result is approximately:
+
+```text
+.build/tld.my.customhome/
+├── apply.sh
+└── assets/
+    ├── home.xml
+    ├── home_layoutShelfView.xml
+    ├── i18n/
+    │   ├── all stock locale files
+    │   └── custom versions replacing selected locales
+    └── images/
+        └── optional custom banners
+```
+
+### Usage
+
+```sh
+./scripts/build.sh
+```
+
+### Important
+
+Do not manually edit files under:
+
+```text
+.build/
+```
+
+They are generated and will be deleted on the next build.
+
+Edit:
+
+```text
+overrides/
+```
+
+instead.
+
+---
+
+## `scripts/deploy.sh`
+
+### Purpose
+
+Builds the project and safely copies it to the TV.
+
+### Usage
+
+```sh
+./scripts/deploy.sh
+```
+
+You do **not** need to run `build.sh` first.
+
+`deploy.sh` automatically runs:
+
+```text
+build.sh
+```
+
+before uploading anything.
+
+### Remote deployment location
+
+The active deployment is stored at:
 
 ```text
 /media/developer/apps/usr/palm/applications/tld.my.customhome/
 ```
 
-The script also creates temporary files under:
+### Staged deployment
+
+Files are initially uploaded to:
 
 ```text
-/tmp/
+/media/developer/apps/usr/palm/applications/tld.my.customhome.new
 ```
 
-The following are used only as **read-only sources**:
+Only after the upload succeeds is the directory moved into the active location.
+
+This avoids leaving a partially uploaded deployment in place.
+
+### Previous deployment
+
+The previous version is retained as:
 
 ```text
-/usr/palm/applications/com.webos.app.home/
-/mnt/lg/wee/ui_l10n/
+/media/developer/apps/usr/palm/applications/tld.my.customhome.previous
 ```
 
-The script does not overwrite files in either location.
+This provides an additional recovery copy of the previous deployment.
 
-OverlayFS temporarily changes what is visible through the Home asset pathname, but the underlying LG files remain unchanged.
+### Important
+
+Deploying does **not** enable the custom Home screen.
+
+It only copies the files.
+
+Run:
+
+```sh
+./scripts/apply.sh
+```
+
+after deployment to activate them.
 
 ---
 
-# Notes & Limitations
+## `scripts/apply.sh`
 
-* XML structure can vary between TV models, regions, and webOS versions.
-* Always inspect the original files on your own TV before modifying your copies.
-* Test the script manually before enabling autostart.
-* A broken `home.xml` can cause a black screen or Home app failure.
-* The OverlayFS upper and work directories live in `/tmp` and disappear after reboot.
-* The original Home application files are never modified.
-* The signed system filesystem should never be written to directly.
-* Do not write directly to raw eMMC partitions such as `/dev/mmcblk0p*`.
-* `upperdir` and `workdir` must exist on the same writable filesystem. This script places both under `/tmp`.
-* The custom `i18n` directory shadows the original `i18n` symlink completely, so it should contain the full locale set.
-* Banner images are optional.
-* Each banner resolution can be overridden independently.
-* BusyBox-compatible shell commands are used.
-* Icon size is hardcoded in the Flutter binary (`libapp.so`) and cannot be changed through the XML layout.
-* `option="webOS24"` and similar AppList options appear to be ignored.
-* A built-in clock component exists in the senior layout (`home_lg.xml`) but does not render outside that layout context.
+### Purpose
+
+Runs the deployed TV-side OverlayFS script.
+
+### Usage
+
+```sh
+./scripts/apply.sh
+```
+
+This executes:
+
+```text
+/media/developer/apps/usr/palm/applications/tld.my.customhome/apply.sh
+```
+
+on the TV over SSH.
+
+The Home app is restarted after the overlay is mounted.
+
+---
+
+## `src/apply.sh`
+
+This is different from:
+
+```text
+scripts/apply.sh
+```
+
+The distinction is important.
+
+### `scripts/apply.sh`
+
+Runs **on your Mac** and tells the TV to start the deployment.
+
+### `src/apply.sh`
+
+Runs **on the TV** and actually creates the OverlayFS mount.
+
+During the build process:
+
+```text
+src/apply.sh
+```
+
+becomes:
+
+```text
+.build/tld.my.customhome/apply.sh
+```
+
+and is then deployed to:
+
+```text
+/media/developer/apps/usr/palm/applications/tld.my.customhome/apply.sh
+```
+
+---
+
+# TV-side OverlayFS Process
+
+The TV-side `apply.sh` defines:
+
+```text
+ASSETS_DIR
+/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets
+
+OVERRIDE_DIR
+/media/developer/apps/usr/palm/applications/tld.my.customhome/assets
+
+UPPER_DIR
+/tmp/weboshome-overlay-upper
+
+WORK_DIR
+/tmp/weboshome-overlay-work
+```
+
+It then:
+
+1. validates the required files
+2. removes any existing Home OverlayFS mount
+3. recreates the temporary upper and work directories
+4. copies the custom XML files into the upper layer
+5. copies the complete built `i18n` tree
+6. copies optional banner images if supplied
+7. mounts OverlayFS over the original Home assets path
+8. restarts `com.webos.app.home`
+
+The original LG filesystem remains unchanged.
+
+---
+
+## `scripts/verify.sh`
+
+### Purpose
+
+Checks that the customisation is actually active.
+
+### Usage
+
+```sh
+./scripts/verify.sh
+```
+
+The script checks:
+
+* an overlay is mounted over the Home asset directory
+* the active `home.xml` matches the deployed custom version
+* the active `home_layoutShelfView.xml` matches the deployed version
+* the merged `i18n` directory exists
+
+Typical successful output contains:
+
+```text
+=== Overlay mount ===
+...
+
+=== home.xml ===
+OK
+
+=== home_layoutShelfView.xml ===
+OK
+
+=== i18n ===
+OK
+```
+
+A successful verification should still be followed by checking the Home screen visually.
+
+---
+
+## `scripts/rollback.sh`
+
+### Purpose
+
+Immediately removes the Home OverlayFS mount.
+
+### Usage
+
+```sh
+./scripts/rollback.sh
+```
+
+This:
+
+```text
+unmounts the OverlayFS
+        ↓
+restarts the Home app
+        ↓
+reveals LG's original Home assets again
+```
+
+It does **not** delete:
+
+```text
+/media/developer/apps/usr/palm/applications/tld.my.customhome/
+```
+
+so your deployed files remain available for further testing.
+
+A reboot also removes the runtime overlay because the OverlayFS upper and work directories are under `/tmp`.
+
+---
+
+# Editing the Home Layout
+
+Your editable layout files are:
+
+```text
+overrides/home.xml
+overrides/home_layoutShelfView.xml
+```
+
+Do not edit the copies under:
+
+```text
+~/Projects/webos10-customhome-stock/
+```
+
+and do not edit the LG originals under:
+
+```text
+/usr/palm/applications/com.webos.app.home/
+```
+
+---
+
+# Comparing Custom and Stock XML
+
+To inspect your changes:
+
+```sh
+diff -u \
+    ~/Projects/webos10-customhome-stock/home.xml \
+    overrides/home.xml
+```
+
+Or using VS Code:
+
+```sh
+code --diff \
+    ~/Projects/webos10-customhome-stock/home.xml \
+    overrides/home.xml
+```
+
+For the second layout file:
+
+```sh
+code --diff \
+    ~/Projects/webos10-customhome-stock/home_layoutShelfView.xml \
+    overrides/home_layoutShelfView.xml
+```
+
+---
+
+# Validate XML Before Deployment
+
+macOS includes `xmllint`.
+
+Validate:
+
+```sh
+xmllint --noout overrides/home.xml
+```
+
+and:
+
+```sh
+xmllint --noout overrides/home_layoutShelfView.xml
+```
+
+No output means the XML parser found no syntax error.
+
+This does not guarantee that the layout is semantically valid for LG Home, but it catches malformed XML before deployment.
+
+---
+
+# Localisation
+
+Only locales that you modify need to exist under:
+
+```text
+overrides/i18n/
+```
+
+For example:
+
+```sh
+./scripts/add-locale.sh en_GB.json
+```
+
+Then edit:
+
+```text
+overrides/i18n/en_GB.json
+```
+
+Validate the JSON:
+
+```sh
+python3 -m json.tool \
+    overrides/i18n/en_GB.json \
+    >/dev/null
+```
+
+No output means the JSON parsed successfully.
+
+---
+
+# Changing Home Text
+
+Strings displayed by Home can be changed in the appropriate locale file.
+
+For a UK-configured TV this will commonly be:
+
+```text
+overrides/i18n/en_GB.json
+```
+
+For example, a string can be replaced or changed to an empty string.
+
+Always edit the copy under:
+
+```text
+overrides/i18n/
+```
+
+rather than the pristine stock version.
+
+---
+
+# Optional Banner Images
+
+Banner replacement is optional.
+
+If no banner override exists, OverlayFS uses LG's original image automatically.
+
+Supported override paths are:
+
+```text
+overrides/images/hd/bg_banner_img.png
+overrides/images/2k/bg_banner_img.png
+overrides/images/4k/bg_banner_img.png
+```
+
+You may provide only the resolution you require.
+
+For example:
+
+```text
+overrides/images/4k/bg_banner_img.png
+```
+
+will replace only the 4K version.
+
+The HD and 2K files continue to come from LG's original assets.
+
+Create the directory only if required:
+
+```sh
+mkdir -p overrides/images/4k
+```
+
+Then copy your image into:
+
+```text
+overrides/images/4k/bg_banner_img.png
+```
+
+The next build will include it automatically.
+
+---
+
+# Removing Unwanted Home Elements
+
+Edit:
+
+```text
+overrides/home.xml
+```
+
+For example, to remove the recommendation shelf:
+
+```sh
+sed -i '' '/<item id="recommendedShelf"/d' overrides/home.xml
+```
+
+On GNU/Linux the equivalent is normally:
+
+```sh
+sed -i '/<item id="recommendedShelf"/d' overrides/home.xml
+```
+
+To remove the Q-Card list:
+
+```sh
+sed -i '' '/<item id="qcardList"/d' overrides/home.xml
+```
+
+Be careful when changing the overall Home structure.
+
+Removing some elements completely may cause the Home application to fail.
+
+---
+
+# Global Navigation
+
+The `globalline` item controls the global navigation area.
+
+Removing the element completely can cause problems.
+
+A safer way of hiding it is to retain the item but set:
+
+```xml
+itemWidth="0"
+itemHeight="0"
+```
+
+---
+
+# Development Workflow
+
+Once initial setup is complete, the normal workflow is:
+
+```sh
+cd ~/Projects/webos10-customhome
+code .
+```
+
+Edit:
+
+```text
+overrides/
+```
+
+Then validate the files.
+
+For example:
+
+```sh
+xmllint --noout overrides/home.xml
+xmllint --noout overrides/home_layoutShelfView.xml
+```
+
+If modifying British English:
+
+```sh
+python3 -m json.tool \
+    overrides/i18n/en_GB.json \
+    >/dev/null
+```
+
+Review changes:
+
+```sh
+git diff
+```
+
+Deploy:
+
+```sh
+./scripts/deploy.sh
+```
+
+Apply:
+
+```sh
+./scripts/apply.sh
+```
+
+Verify:
+
+```sh
+./scripts/verify.sh
+```
+
+Then inspect the TV visually.
+
+---
+
+# Development Cycle
+
+The complete cycle is:
+
+```text
+edit overrides/
+       ↓
+validate XML / JSON
+       ↓
+git diff
+       ↓
+deploy.sh
+       ↓
+build.sh runs automatically
+       ↓
+deployment copied to TV
+       ↓
+apply.sh
+       ↓
+OverlayFS enabled
+       ↓
+Home restarts
+       ↓
+verify.sh
+       ↓
+visual test
+```
+
+If the result is bad:
+
+```sh
+./scripts/rollback.sh
+```
+
+Then make another local change and repeat.
+
+---
+
+# Git Workflow
+
+Review:
+
+```sh
+git status
+git diff
+```
+
+Then commit your custom files and tooling:
+
+```sh
+git add \
+    src \
+    scripts \
+    overrides \
+    README.md \
+    .gitignore
+```
+
+Commit:
+
+```sh
+git commit -m "Update custom Home configuration"
+```
+
+Push:
+
+```sh
+git push
+```
+
+Generated files under:
+
+```text
+.build/
+```
+
+should not be committed.
+
+Pristine LG files under:
+
+```text
+~/Projects/webos10-customhome-stock/
+```
+
+are outside the Git repository entirely.
+
+---
+
+# Generated Build Directory
+
+The build directory is:
+
+```text
+.build/tld.my.customhome/
+```
+
+It is temporary.
+
+A typical result is:
+
+```text
+.build/tld.my.customhome/
+├── apply.sh
+└── assets/
+    ├── home.xml
+    ├── home_layoutShelfView.xml
+    ├── i18n/
+    │   ├── en_AM.json
+    │   ├── en_AU.json
+    │   ├── en_CA.json
+    │   ├── en_GB.json
+    │   ├── ...
+    │   └── en.json
+    └── images/
+        └── ... optional overrides
+```
+
+The complete locale set comes from:
+
+```text
+~/Projects/webos10-customhome-stock/i18n/
+```
+
+Custom locales from:
+
+```text
+overrides/i18n/
+```
+
+replace their stock equivalents during the build.
+
+---
+
+# Enabling Automatic Startup
+
+Do this only after manual deployment and testing are working reliably.
+
+Create the webOSbrew init link:
+
+```sh
+ssh lg-tv \
+    'ln -sf /media/developer/apps/usr/palm/applications/tld.my.customhome/apply.sh /var/lib/webosbrew/init.d/49-custom-homescreen'
+```
+
+Verify:
+
+```sh
+ssh lg-tv \
+    'ls -l /var/lib/webosbrew/init.d/49-custom-homescreen'
+```
+
+Then reboot:
+
+```sh
+ssh lg-tv reboot
+```
+
+After the TV comes back:
+
+```sh
+./scripts/verify.sh
+```
+
+---
+
+# Disabling Automatic Startup
+
+Remove the startup link:
+
+```sh
+ssh lg-tv \
+    'rm -f /var/lib/webosbrew/init.d/49-custom-homescreen'
+```
+
+Then either reboot:
+
+```sh
+ssh lg-tv reboot
+```
+
+or remove the active runtime overlay:
+
+```sh
+./scripts/rollback.sh
+```
+
+---
+
+# Recovery
+
+The customisation does not overwrite LG's original Home assets.
+
+If Home becomes unusable:
+
+```sh
+./scripts/rollback.sh
+```
+
+or reboot:
+
+```sh
+ssh lg-tv reboot
+```
+
+Because:
+
+```text
+/tmp/weboshome-overlay-upper
+/tmp/weboshome-overlay-work
+```
+
+are temporary, the runtime overlay disappears after reboot.
+
+LG's original Home assets become visible again.
+
+If autostart itself is causing a problem, remove:
+
+```text
+/var/lib/webosbrew/init.d/49-custom-homescreen
+```
+
+before the next normal boot where possible.
+
+---
+
+# Why OverlayFS?
+
+An earlier approach copied the complete Flutter asset tree into `/tmp` and bind-mounted the resulting directory over the original assets.
+
+OverlayFS avoids that unnecessary copy.
+
+It provides:
+
+* fewer filesystem reads
+* less temporary RAM use
+* faster application
+* clear separation between stock and custom files
+* automatic fallback to LG files that are not overridden
+* straightforward optional image overrides
+* simple reboot rollback
+
+Only files that genuinely need replacement are placed in the upper layer.
+
+---
+
+# The `i18n` Symlink
+
+This is an important implementation detail.
+
+The original:
+
+```text
+/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/i18n
+```
+
+is a symlink into another read-only LG filesystem.
+
+OverlayFS cannot merge individual custom files through that lower-layer symlink in the way it can merge ordinary directories.
+
+The project therefore builds a complete real `i18n` directory for the upper layer.
+
+That is why:
+
+```text
+overrides/i18n/
+```
+
+contains only your changed locale files, while:
+
+```text
+.build/.../assets/i18n/
+```
+
+contains every locale.
+
+---
+
+# BusyBox Compatibility
+
+webOS uses BusyBox implementations of many Unix tools.
+
+Do not assume GNU-specific command options are available on the TV.
+
+For example, older approaches used:
+
+```text
+cp -R --no-dereference
+```
+
+which is not appropriate to assume on BusyBox.
+
+The TV-side script uses:
+
+```sh
+cp -a
+```
+
+for its recursive locale copy.
+
+The complete original Flutter asset tree is not copied at all.
+
+---
+
+# Files That Are Safe to Work With
+
+Project deployment:
+
+```text
+/media/developer/apps/usr/palm/applications/tld.my.customhome/
+```
+
+Temporary OverlayFS runtime:
+
+```text
+/tmp/weboshome-overlay-upper/
+/tmp/weboshome-overlay-work/
+```
+
+webOSbrew startup link:
+
+```text
+/var/lib/webosbrew/init.d/49-custom-homescreen
+```
+
+---
+
+# Files That Should Not Be Modified Directly
+
+Do not directly edit LG's Home files under:
+
+```text
+/usr/palm/applications/com.webos.app.home/
+```
+
+Do not directly edit locale source files under:
+
+```text
+/mnt/lg/wee/
+```
+
+Do not write to raw eMMC devices such as:
+
+```text
+/dev/mmcblk0p*
+```
+
+This project requires none of those operations.
+
+---
+
+# Summary of Scripts
+
+| Script                  | Runs on | Purpose                                            |
+| ----------------------- | ------- | -------------------------------------------------- |
+| `scripts/pull-stock.sh` | Mac     | Pull pristine XML and locale files from the TV     |
+| `scripts/add-locale.sh` | Mac     | Add one stock locale to Git for customisation      |
+| `scripts/build.sh`      | Mac     | Build a complete deployable tree                   |
+| `scripts/deploy.sh`     | Mac     | Build and safely upload the deployment to the TV   |
+| `scripts/apply.sh`      | Mac     | Tell the TV to activate the deployed customisation |
+| `scripts/verify.sh`     | Mac     | Verify the active OverlayFS and custom XML         |
+| `scripts/rollback.sh`   | Mac     | Remove the runtime overlay and restore stock Home  |
+| `src/apply.sh`          | TV      | Create the actual OverlayFS mount and restart Home |
+
+---
+
+# Quick Reference
+
+Initial setup:
+
+```sh
+./scripts/pull-stock.sh
+./scripts/add-locale.sh en_GB.json
+```
+
+Edit:
+
+```text
+overrides/home.xml
+overrides/home_layoutShelfView.xml
+overrides/i18n/en_GB.json
+```
+
+Validate:
+
+```sh
+xmllint --noout overrides/home.xml
+xmllint --noout overrides/home_layoutShelfView.xml
+
+python3 -m json.tool \
+    overrides/i18n/en_GB.json \
+    >/dev/null
+```
+
+Deploy and test:
+
+```sh
+./scripts/deploy.sh
+./scripts/apply.sh
+./scripts/verify.sh
+```
+
+Rollback:
+
+```sh
+./scripts/rollback.sh
+```
+
+Commit:
+
+```sh
+git status
+git diff
+git add .
+git commit -m "Update custom Home configuration"
+git push
+```
+
+---
+
+# Notes
+
+* XML structures may vary between TV models, regions and webOS versions.
+* Always retain a pristine stock snapshot from the TV being customised.
+* Test manually before enabling autostart.
+* A syntactically valid XML file can still contain a layout that LG Home cannot render correctly.
+* Banner overrides are optional.
+* Individual banner resolutions can be overridden independently.
+* Locale filenames use LG's naming, for example `en_GB.json`.
+* The complete locale set is assembled automatically at build time.
+* The original LG Home application remains untouched.
+* Rebooting removes the temporary OverlayFS runtime state.
+* Icon sizing may be hardcoded in the Home application's Flutter binary rather than controlled by XML.
 
 ---
 
 # Credits
 
-Thanks to `/u/really_accidental` for the tip about hiding the global navigation for an even cleaner Home screen.
-
-Thanks to the contributors who tested the OverlayFS approach and BusyBox-compatible `cp -a` handling on rooted LG webOS TVs.
+Based on the original webOS 10 Home-screen customisation work and subsequent testing of OverlayFS and BusyBox-compatible handling on rooted LG webOS TVs.

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<home version="2.0">
+    <layout type="ShelfView" vMargin="30">
+        <firstPage>
+            <item type="Hero" itemX="10" itemY="24" uiWidth="1896" uiHeight="450"  itemWidth="1896" itemHeight="488" itemVideoWidth="1746" itemVideoHeight="450" focus="true" topGlobalOption="vertical"/>
+            <item type="Qcard" itemX="24" itemY="770" itemWidth="1872" itemHeight="120" focus="true" option="simple"/>
+            <item type="AppList" itemX="24" itemY="850" itemWidth="1872" itemHeight="173" focus="true" option="webOS24"/>
+            <item type="AdShelf" itemX="430" itemY="220" itemWidth="1920" itemHeight="350"/>
+        </firstPage>
+    </layout>
+</home>
