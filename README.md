@@ -10,7 +10,7 @@ exists.
 > [!WARNING]
 > This project requires a rooted TV, Homebrew Channel/webOSbrew, and root SSH
 > access. Layout files vary between models, regions, and webOS releases. Create
-> the local stock snapshot required by the build, and test manually before
+> a local stock snapshot for reference, and test manually before
 > enabling automatic startup.
 
 ## What can be changed?
@@ -231,17 +231,16 @@ parent-directory/
 
 The exact contents vary by TV and software version.
 
-Set `STOCK_DIR` when a different location is required.
+Set `STOCK_DIR` when running `pull-stock.sh` to use a different location.
 
-This snapshot is a build input and editing reference, not a recovery backup.
+This snapshot is an editing reference, not a build requirement or recovery backup.
 LG's originals remain untouched on the TV, and `rollback.sh` reveals them by
-removing the overlay. The snapshot is still required because `build.sh` uses
-its complete locale set when assembling the deployment. Its banner images are
-starting points for optional artwork overrides.
+removing the overlay. Activation reads the complete locale set directly from
+the TV. The snapshot's banner images are starting points for artwork overrides.
 
 The complete snapshot is for local reference; it is not copied wholesale into
-the OverlayFS upper layer. Builds continue to include only the required locale
-set and files intentionally placed under `overrides/`.
+the OverlayFS upper layer. Builds include only the two supported XML files,
+customised locale JSON files, supported banner overrides, and the activation script.
 
 ## Setup
 
@@ -273,8 +272,8 @@ TV=other-tv ./scripts/verify.sh
 
 ### 2. Create the local stock snapshot
 
-Run this before making changes. It captures the complete Home asset tree for
-reference and supplies the locale set needed by `build.sh`:
+Run this before making changes to capture the complete Home asset tree for
+reference. Building existing overrides does not require a snapshot:
 
 ```sh
 ./scripts/pull-stock.sh
@@ -365,7 +364,7 @@ The generated deployment is placed in:
 └── assets/
     ├── home.xml
     ├── home_layoutShelfView.xml
-    ├── i18n/
+    ├── i18n/                # customised JSON files only; may be empty
     └── images/              # present only when overridden
 ```
 
@@ -378,7 +377,8 @@ version at:
 
 Deploying copies files but does not activate them. `activate.sh` mounts the
 merged view and restarts Home. `verify.sh` then checks the OverlayFS mount, both
-XML files, the real upper-layer `i18n` directory, and every deployed locale.
+XML files, the real upper-layer `i18n` directory, every deployed locale, and
+each deployed banner override.
 
 ## Rollback and recovery
 
@@ -469,14 +469,19 @@ The scripts read from, but never write into:
 No operation in this project needs to write to a raw storage device such as
 `/dev/mmcblk0p*`.
 
-## Why the build contains every locale
+## How locale overrides work
 
 LG's original `i18n` entry is a symlink into another read-only filesystem. A
 real `i18n` directory in the OverlayFS upper layer hides that symlink rather
 than merging individual files through it.
 
-For this reason, `overrides/i18n/` contains only edited locales, while the build
-contains the complete stock locale set with edited files copied over it.
+The build uploads only edited JSON files from `overrides/i18n/`. On activation,
+after unmounting any previous overlay, the script copies the TV's current stock
+locale tree into `/tmp/weboshome-overlay-upper/i18n/`, then applies those edits.
+The original locale files are only read; all changes stay in the temporary tree.
+
+Customised JSON files still replace whole locale files, not individual keys.
+After a firmware update, review those files for new or changed translations.
 
 ## Script reference
 
@@ -486,7 +491,7 @@ contains the complete stock locale set with edited files copied over it.
 | `scripts/build.sh` | Development machine | Assemble a complete deployment |
 | `scripts/deploy.sh` | Development machine | Build and stage files on the TV |
 | `scripts/activate.sh` | Development machine | Run the deployed OverlayFS script |
-| `scripts/verify.sh` | Development machine | Verify the active XML and locales |
+| `scripts/verify.sh` | Development machine | Verify the active XML, locales, and banners |
 | `scripts/rollback.sh` | Development machine | Remove the runtime overlay |
 | `src/customhome.sh` | TV | Create the OverlayFS mount and restart Home |
 

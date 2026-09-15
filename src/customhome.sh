@@ -96,6 +96,13 @@ while :; do
     sleep 1
 done
 
+# Check the original locale directory only after removing the previous overlay.
+
+[ -d "$ASSETS_DIR/i18n" ] || {
+    echo "ERROR: Stock i18n directory not found: $ASSETS_DIR/i18n"
+    exit 1
+}
+
 # Recreate temporary OverlayFS directories.
 
 rm -rf "$UPPER_DIR" "$WORK_DIR"
@@ -112,14 +119,20 @@ cp "$OVERRIDE_DIR/home.xml" \
 cp "$OVERRIDE_DIR/home_layoutShelfView.xml" \
    "$UPPER_DIR/home_layoutShelfView.xml"
 
-# Complete i18n tree.
+# Start with the TV's current stock i18n tree, then apply customised locales.
 #
-# The original i18n entry is a symlink. A real i18n directory in the
-# upper layer shadows it completely, so the deployed directory must
-# contain the full locale set.
+# A real upper-layer directory hides the original i18n symlink completely.
+# Dereference stock links while copying so later writes cannot follow a copied
+# symlink back outside the temporary upper directory. Stock is only read.
 
-cp -a "$OVERRIDE_DIR/i18n/." \
+cp -RL "$ASSETS_DIR/i18n/." \
       "$UPPER_DIR/i18n/"
+
+for FILE in "$OVERRIDE_DIR"/i18n/*.json; do
+    [ -f "$FILE" ] || continue
+
+    cp "$FILE" "$UPPER_DIR/i18n/"
+done
 
 # Optional banner overrides.
 #

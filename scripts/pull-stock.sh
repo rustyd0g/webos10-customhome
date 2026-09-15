@@ -97,7 +97,7 @@ ASSET_STAGE="$STAGE_DIR/assets"
 }
 
 # The asset tree contains an absolute i18n symlink. Replace the local copy with
-# a real directory so builds have a complete, directly usable locale set.
+# a real directory so locale files can be inspected and copied for editing.
 
 rm -rf "$ASSET_STAGE/i18n"
 

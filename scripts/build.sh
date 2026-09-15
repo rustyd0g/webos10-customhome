@@ -1,16 +1,12 @@
 #!/bin/sh
 
-# Builds the local deployment bundle from the stock locales and custom overrides.
-# Usage: scripts/build.sh (no arguments; set STOCK_DIR if needed).
+# Builds the local deployment bundle from custom overrides only.
+# Usage: scripts/build.sh (no arguments).
 
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname "$SCRIPT_DIR")
-PARENT_DIR=$(dirname "$REPO_DIR")
-
-STOCK_DIR="${STOCK_DIR:-$PARENT_DIR/webos10-customhome-stock}"
-
 OVERRIDES="$REPO_DIR/overrides"
 BUILD_DIR="$REPO_DIR/.build/tld.my.customhome"
 
@@ -26,14 +22,6 @@ BUILD_DIR="$REPO_DIR/.build/tld.my.customhome"
 
 [ -f "$OVERRIDES/home_layoutShelfView.xml" ] || {
     echo "ERROR: Missing overrides/home_layoutShelfView.xml"
-    exit 1
-}
-
-[ -d "$STOCK_DIR/i18n" ] || {
-    echo "ERROR: Missing stock i18n directory:"
-    echo "  $STOCK_DIR/i18n"
-    echo
-    echo "Run scripts/pull-stock.sh first."
     exit 1
 }
 
@@ -58,15 +46,10 @@ cp "$OVERRIDES/home.xml" \
 cp "$OVERRIDES/home_layoutShelfView.xml" \
    "$BUILD_DIR/assets/home_layoutShelfView.xml"
 
-# Complete stock locale set.
-
-cp -R "$STOCK_DIR/i18n/." \
-      "$BUILD_DIR/assets/i18n/"
-
-# Replace stock locales with customised versions.
+# Ship only customised locales; activation supplies stock locales from the TV.
 
 if [ -d "$OVERRIDES/i18n" ]; then
-    for FILE in "$OVERRIDES"/i18n/*; do
+    for FILE in "$OVERRIDES"/i18n/*.json; do
         [ -f "$FILE" ] || continue
 
         cp "$FILE" \

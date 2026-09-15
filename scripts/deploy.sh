@@ -24,6 +24,8 @@ echo
 echo "Creating remote staging directory..."
 
 ssh "$TV" "
+    set -e
+
     rm -rf '$STAGE'
     mkdir -p '$STAGE'
 "

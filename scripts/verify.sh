@@ -48,13 +48,28 @@ ssh "$TV" "
         exit 1
     fi
 
-    for FILE in '$TARGET/assets/i18n/'*; do
+    for FILE in '$TARGET/assets/i18n/'*.json; do
         [ -f \"\$FILE\" ] || continue
 
         NAME=\${FILE##*/}
 
         cmp \"\$FILE\" '$ASSETS/i18n/'\"\$NAME\" || {
             echo \"ERROR: Active locale does not match deployment: \$NAME\"
+            exit 1
+        }
+    done
+
+    echo 'OK'
+
+    echo
+    echo '=== Banner overrides ==='
+
+    for RESOLUTION in hd 2k 4k; do
+        IMAGE=images/\$RESOLUTION/bg_banner_img.png
+        [ -f '$TARGET/assets/'\"\$IMAGE\" ] || continue
+
+        cmp '$TARGET/assets/'\"\$IMAGE\" '$ASSETS/'\"\$IMAGE\" || {
+            echo \"ERROR: Active banner does not match deployment: \$RESOLUTION\"
             exit 1
         }
     done
